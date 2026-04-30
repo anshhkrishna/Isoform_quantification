@@ -46,6 +46,8 @@ import pickle
 import sys
 import time
 
+import numpy as np
+
 # Add core/ to path for library module imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "core"))
 
@@ -188,18 +190,24 @@ def main() -> None:
         weight_data = compute_weights(tcc_data, mode=args.eff_len_mode)
 
     # --- Step 1.3: Run EM ---
-    if args.em_type != "plain":
-        # TODO Phase 2 (MAP) and Phase 4 (VI)
+    if args.em_type == "VI":
         raise NotImplementedError(
-            f"em_type='{args.em_type}' is not yet implemented. "
-            "Use --em_type plain for Phase 1."
+            "em_type='VI' (variational inference) is not yet implemented. "
+            "Use --em_type plain or --em_type MAP."
         )
+
+    # MAP mode: uniform Dirichlet prior (alpha[t] = 1.0 for all t)
+    if args.em_type == "MAP":
+        alpha_prior = np.ones(len(tcc_data.transcript_names), dtype=np.float64)
+    else:
+        alpha_prior = None  # plain EM
 
     em = JoliEM(tcc_data, weight_data)
     em_result = em.run(
         max_em_rounds     = args.max_em_rounds,
         min_rounds        = args.min_rounds,
         convergence_mode  = args.convergence_mode,
+        alpha_prior       = alpha_prior,
         snapshot_interval = args.snapshot_interval if save_snapshots else 0,
     )
 

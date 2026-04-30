@@ -46,7 +46,10 @@ from pathlib import Path
 # Add core/ to path for library module imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "core"))
 
-from load_tcc import load_tcc_data  # Step 1.1 — data loader
+from load_tcc import load_tcc_data      # Step 1.1 — data loader
+from weights import compute_weights    # Step 1.2 — effective lengths and EC weights
+from em_algorithm import JoliEM        # Step 1.3 — EM algorithm
+from output_writer import write_abundance  # Step 1.4 — output writer
 
 # ============================================================
 # CONFIG — edit everything here; do not touch pipeline logic below
@@ -341,13 +344,31 @@ def run_joli_em(
              f"{len(tcc_data.transcript_names)} transcripts, "
              f"{tcc_data.total_reads} total reads")
 
-    # --- Steps 1.2-1.5 will be added here incrementally ---
-    # TODO Step 1.2: compute weights (weights.py)
-    # TODO Step 1.3: run JoliEM (em_algorithm.py)
-    # TODO Step 1.4: write abundance.tsv (output_writer.py)
+    # --- Step 1.2: Compute weights ---
+    weight_data = compute_weights(tcc_data, mode=EFF_LEN_MODE)
+    log.info(f"[{sample_name}] Weights computed (mode='{EFF_LEN_MODE}')")
 
-    log.info(f"[{sample_name}] JOLI EM stub complete. "
-             f"EM not yet implemented (Steps 1.2-1.5 pending).")
+    # --- Step 1.3: Run JOLI EM ---
+    em = JoliEM(tcc_data, weight_data)
+    em_result = em.run(
+        max_em_rounds    = MAX_EM_ROUNDS,
+        convergence_mode = "kallisto",
+    )
+    log.info(f"[{sample_name}] EM done: rounds={em_result.n_rounds}, "
+             f"converged={em_result.converged}, "
+             f"nonzero_tx={int((em_result.alpha > 0).sum())}")
+
+    # --- Step 1.4: Write abundance.tsv ---
+    out_path = os.path.join(sample_result_dir, "abundance.tsv")
+    summary = write_abundance(
+        alpha            = em_result.alpha,
+        eff_lens         = weight_data.eff_lens,
+        transcript_names = tcc_data.transcript_names,
+        output_path      = out_path,
+    )
+    log.info(f"[{sample_name}] abundance.tsv written: "
+             f"non-zero TPM={summary['n_nonzero']}, "
+             f"total TPM={summary['total_tpm']:.2f}")
 
 
 # ============================================================
