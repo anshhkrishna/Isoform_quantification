@@ -467,13 +467,16 @@ class MultiSampleJoliEM:
             # instead of reconstructing manually — just re-run one MAP EM round
             # to get a proper EMResult for output_writer.
             em     = self.em_list[s_idx]
+            # Run the finalisation round with plain EM (alpha_prior=None) so the
+            # Dirichlet prior cannot resurrect transcripts that were zeroed during
+            # training — fixes false positive inflation (TODO-3).
             result = em.run(
                 max_em_rounds    = 1,
                 min_rounds       = 1,
                 convergence_mode = self.convergence_mode,
-                alpha_prior      = results["alpha"],
+                alpha_prior      = None,
                 init_theta       = theta_s,
-                min_read_support = self.min_read_support,
+                min_read_support = 0.0,
             )
 
             out_path = os.path.join(sample_out, "abundance.tsv")

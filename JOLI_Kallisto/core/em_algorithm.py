@@ -52,13 +52,14 @@ from weights import WeightData
 # Constants — match kallisto EMAlgorithm.h exactly
 # ============================================================
 
-TOLERANCE          = np.finfo(np.float64).tiny   # ~2.2e-308; floor for denominators
-ALPHA_LIMIT        = 1e-7    # transcripts below this × 0.1 are zeroed out
-ALPHA_CHANGE_LIMIT = 1e-2    # convergence threshold — interpreted differently per mode:
-                             #   "kallisto" mode: raw expected counts > 0.01  (matches C++ EM)
-                             #   "joli"    mode: normalized theta   > 0.01  (fast, for MAP/VI)
-ALPHA_CHANGE       = 1e-2    # 1% relative change threshold for convergence
-DEFAULT_MIN_ROUNDS = 50      # minimum EM iterations before convergence is checked
+TOLERANCE              = np.finfo(np.float64).tiny   # ~2.2e-308; floor for denominators
+ALPHA_LIMIT            = 1e-7    # transcripts below this × 0.1 are zeroed out
+CONVERGENCE_MIN_COUNT  = 1e-2    # minimum raw expected count (kallisto mode) or normalized
+                                 # theta floor (joli mode) for a transcript to be monitored:
+                                 #   "kallisto" mode: raw expected counts > 0.01  (matches C++ EM)
+                                 #   "joli"    mode: not used (uses 1e-10 floor instead)
+CONVERGENCE_REL_CHANGE = 1e-2    # 1% relative change threshold for declaring convergence
+DEFAULT_MIN_ROUNDS     = 50      # minimum EM iterations before convergence is checked
 
 
 # ============================================================
@@ -209,6 +210,10 @@ class JoliEM:
             float(self._multi_ec_counts.sum()) if len(self._multi_ec_counts) > 0 else 0.0
         )
 
+        assert len(self._single_tx_ids) == len(self._single_ec_counts), (
+            "single_tx_ids / single_ec_counts length mismatch — preprocessing bug"
+        )
+
         print(f"[JoliEM] Pre-processed: {len(single_ec_ids)} single-tx ECs, "
               f"{self._n_multi_ecs} multi-tx ECs, "
               f"{len(self._multi_flat_tx)} total EC-transcript positions, "
@@ -280,7 +285,7 @@ class JoliEM:
 
           "kallisto" (default for plain EM):
             Matches kallisto EMAlgorithm.h exactly. The convergence threshold
-            ALPHA_CHANGE_LIMIT is applied to RAW expected counts (alpha = theta *
+            CONVERGENCE_MIN_COUNT is applied to RAW expected counts (alpha = theta *
             total_multi_reads), so even transcripts with tiny fractional counts
             (> 0.01 reads) are monitored. This forces JK to run until ALL small
             transcripts have truly converged, matching kallisto's isoform set.
@@ -288,7 +293,7 @@ class JoliEM:
             kallisto), allowing reads to redistribute away from zeroed transcripts.
 
           "joli" (recommended for MAP / VI):
-            Applies ALPHA_CHANGE_LIMIT to NORMALIZED theta (sums to 1). Only
+            Applies CONVERGENCE_MIN_COUNT to NORMALIZED theta (sums to 1). Only
             transcripts with theta > 0.01 (> 1% of total reads) are monitored.
             Converges faster. Small transcripts are left to the Dirichlet prior
             in MAP/VI mode rather than being driven to zero by more EM rounds.
@@ -415,20 +420,20 @@ class JoliEM:
                 alpha_new = theta_new * total_multi_reads
                 alpha_old = theta     * total_multi_reads
                 changed = int(np.sum(
-                    (alpha_new > ALPHA_CHANGE_LIMIT) &
+                    (alpha_new > CONVERGENCE_MIN_COUNT) &
                     (np.abs(alpha_new - alpha_old) / np.maximum(alpha_new, TOLERANCE)
-                     > ALPHA_CHANGE)
+                     > CONVERGENCE_REL_CHANGE)
                 ))
             else:
                 # "joli" mode: compare normalized theta directly.
                 # Monitor all active transcripts (theta > numerical floor).
-                # ALPHA_CHANGE_LIMIT is NOT used here — it was designed for raw
+                # CONVERGENCE_MIN_COUNT is NOT used here — it was designed for raw
                 # counts in kallisto mode and incorrectly filters out most
                 # transcripts when applied to normalized theta over 200k+ entries.
                 changed = int(np.sum(
                     (theta_new > 1e-10) &
                     (np.abs(theta_new - theta) / np.maximum(theta_new, TOLERANCE)
-                     > ALPHA_CHANGE)
+                     > CONVERGENCE_REL_CHANGE)
                 ))
 
             theta = theta_new
@@ -442,7 +447,7 @@ class JoliEM:
                 if convergence_mode == "joli":
                     n_monitored = int((theta_new > 1e-10).sum())
                 else:
-                    n_monitored = int((theta_new * total_multi_reads > ALPHA_CHANGE_LIMIT).sum())
+                    n_monitored = int((theta_new * total_multi_reads > CONVERGENCE_MIN_COUNT).sum())
                 print(f"[JoliEM] Round {round_num + 1}: "
                       f"monitored={n_monitored}, changed={changed}")
 
@@ -503,9 +508,10 @@ class JoliEM:
         print(f"[JoliEM] Done. Rounds={round_num + 1}, "
               f"nonzero_transcripts={int((alpha > 0).sum())}")
 
-        # Always append the final theta as the last snapshot
+        # Always append the final theta as the last snapshot.
+        # Tag with round_num (the last *executed* round), not round_num + 1.
         if snapshots is not None:
-            snapshots.append((round_num + 1, theta.copy()))
+            snapshots.append((round_num, theta.copy()))
 
         return EMResult(alpha=alpha, n_rounds=round_num + 1, converged=converged,
                         snapshots=snapshots)
@@ -572,15 +578,15 @@ class JoliEM:
             alpha_new = theta_new * self._total_multi_reads
             alpha_old = theta     * self._total_multi_reads
             n_changed = int(np.sum(
-                (alpha_new > ALPHA_CHANGE_LIMIT) &
+                (alpha_new > CONVERGENCE_MIN_COUNT) &
                 (np.abs(alpha_new - alpha_old) /
-                 np.maximum(alpha_new, TOLERANCE) > ALPHA_CHANGE)
+                 np.maximum(alpha_new, TOLERANCE) > CONVERGENCE_REL_CHANGE)
             ))
         else:
             n_changed = int(np.sum(
                 (theta_new > 1e-10) &
                 (np.abs(theta_new - theta) /
-                 np.maximum(theta_new, TOLERANCE) > ALPHA_CHANGE)
+                 np.maximum(theta_new, TOLERANCE) > CONVERGENCE_REL_CHANGE)
             ))
 
         return theta_new, n_changed

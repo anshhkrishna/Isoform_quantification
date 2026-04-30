@@ -30,6 +30,7 @@ Outputs:
 """
 
 import math
+import warnings
 
 import numpy as np
 import torch
@@ -132,8 +133,9 @@ class DirichletOptimizer:
         # Convert to torch tensor once (stays fixed during Adam iterations)
         data = torch.tensor(theta_norm, dtype=torch.float32)   # shape (S, T)
 
-        loss_history = []
-        prev_loss    = None
+        loss_history     = []
+        prev_loss        = None
+        total_nan_resets = 0
 
         log_alpha_floor = math.log(ALPHA_MIN)
 
@@ -150,8 +152,10 @@ class DirichletOptimizer:
             with torch.no_grad():
                 bad = ~torch.isfinite(self.log_alpha)
                 if bad.any():
+                    n_bad = bad.sum().item()
+                    total_nan_resets += n_bad
                     print(f"[DirichletOptimizer] iter {iteration}: "
-                          f"resetting {bad.sum().item()} NaN/inf log_alpha → floor")
+                          f"resetting {n_bad} NaN/inf log_alpha → floor")
                     self.log_alpha[bad] = log_alpha_floor
                     # Reset Adam state for corrupted parameters so momentum does not
                     # carry forward the invalid gradient signal
@@ -183,12 +187,23 @@ class DirichletOptimizer:
 
             prev_loss = loss_val
 
+        # Warn if NaN resets occurred — final alpha may be partially invalid
+        if total_nan_resets > 0:
+            warnings.warn(
+                f"[DirichletOptimizer] NaN/inf resets occurred {total_nan_resets} time(s) "
+                "during this update call. Final alpha may be partially invalid. "
+                "Check training_stats.pkl for cumulative reset counts.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
         # Convert back to numpy for use in EM
         alpha_np = torch.exp(self.log_alpha).detach().numpy().astype(np.float64)
 
         print(f"[DirichletOptimizer] Updated alpha: "
               f"min={alpha_np.min():.4f}, max={alpha_np.max():.4f}, "
-              f"mean={alpha_np.mean():.4f}, loss={loss_history[-1]:.4f}")
+              f"mean={alpha_np.mean():.4f}, loss={loss_history[-1]:.4f}"
+              + (f", nan_resets={total_nan_resets}" if total_nan_resets > 0 else ""))
 
         return alpha_np, loss_history
 
