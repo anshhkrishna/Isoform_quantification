@@ -40,7 +40,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from load_tcc import TCCData
+from load_tcc import TCCData, FLENS_SENTINEL
 
 
 # ============================================================
@@ -201,11 +201,10 @@ def compute_weights(
                     f"flens has {len(flens)} entries but n_transcripts={n_transcripts}."
                 )
             eff_lens = flens.astype(np.float64)
-            sentinel = 4294967295.0  # UINT32_MAX — unobserved transcripts
-            n_sentinel = int((eff_lens >= sentinel).sum())
+            n_sentinel = int((eff_lens >= FLENS_SENTINEL).sum())
             print(f"  Kallisto mode (flens): loaded from flens.txt")
-            print(f"  eff_lens: min={eff_lens[eff_lens < sentinel].min():.1f}, "
-                  f"max={eff_lens[eff_lens < sentinel].max():.1f}, "
+            print(f"  eff_lens: min={eff_lens[eff_lens < FLENS_SENTINEL].min():.1f}, "
+                  f"max={eff_lens[eff_lens < FLENS_SENTINEL].max():.1f}, "
                   f"sentinel (unobserved): {n_sentinel}")
         elif transcript_lengths is not None and mean_frag_len is not None:
             # Legacy path: compute from raw lengths + mean fragment length.

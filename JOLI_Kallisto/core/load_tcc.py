@@ -29,6 +29,12 @@ import numpy as np
 from scipy.io import mmread
 
 
+# Sentinel value used by kallisto quant-tcc in flens.txt for transcripts
+# that had no observed reads. UINT32_MAX = 4294967295.
+# Defined once here and imported by weights.py to avoid divergence.
+FLENS_SENTINEL = 4294967295.0
+
+
 # ============================================================
 # Data container
 # ============================================================
@@ -248,8 +254,7 @@ def load_flens(sample_dir: str, n_transcripts: int) -> np.ndarray:
         )
 
     # Checkpoint: report sentinel count
-    sentinel = 4294967295.0  # UINT32_MAX — no reads observed for this transcript
-    n_sentinel = int((values >= sentinel).sum())
+    n_sentinel = int((values >= FLENS_SENTINEL).sum())
     print(f"    Loaded {len(values)} effective lengths "
           f"({n_sentinel} sentinel/unobserved transcripts)")
 

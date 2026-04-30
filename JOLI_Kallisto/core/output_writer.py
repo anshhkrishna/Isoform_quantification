@@ -100,6 +100,12 @@ def write_abundance(
     # --- Compute rho (length-normalized expected counts; matches kallisto compute_rho()) ---
     # Sentinel values (e.g. UINT32_MAX from flens.txt) produce near-zero weights;
     # guard against true zero eff_lens to avoid division by zero.
+    zero_eff_mask = eff_lens <= 0
+    if zero_eff_mask.any():
+        n_zero = int(zero_eff_mask.sum())
+        print(f"[output_writer] WARNING: {n_zero} transcript(s) have eff_len <= 0 "
+              f"(not a sentinel — genuinely missing/short). Falling back to eff_len=1.0. "
+              f"TPM for these transcripts may be inflated.")
     safe_eff_lens = np.where(eff_lens > 0, eff_lens, 1.0)
     rho = alpha / safe_eff_lens          # shape (n_tx,)
 

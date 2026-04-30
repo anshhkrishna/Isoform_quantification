@@ -43,8 +43,10 @@ def _spearman(a: np.ndarray, b: np.ndarray) -> float:
         float -- Spearman r.
     """
     result = spearmanr(a, b)
-    # scipy >= 1.11 uses .statistic; older versions use .correlation
-    return float(getattr(result, "statistic", getattr(result, "correlation", result[0])))
+    try:
+        return float(result.statistic)       # scipy >= 1.11
+    except AttributeError:
+        return float(result.correlation)     # scipy < 1.11
 
 
 def _pearson(a: np.ndarray, b: np.ndarray) -> float:
